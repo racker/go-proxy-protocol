@@ -58,14 +58,6 @@ type ProxyLine struct {
 	DstPort  int
 }
 
-func (p *ProxyLine) EqualTo(q *ProxyLine) bool {
-	return p.Protocol == q.Protocol &&
-		p.SrcAddr.String() == q.SrcAddr.String() &&
-		p.DstAddr.String() == q.DstAddr.String() &&
-		p.SrcPort == q.SrcPort &&
-		p.DstPort == q.DstPort
-}
-
 // ConsumeProxyLine looks for PROXY line in the reader and try to parse it if found.
 //
 // If first 5 bytes in reader is "PROXY", the function reads one line (until first '\n') from reader and try to parse it as ProxyLine. A newly allocated ProxyLine is returned if parsing secceeds. If parsing fails, a nil and an error is returned;
@@ -115,7 +107,7 @@ func ConsumeProxyLine(reader *bufio.Reader) (*ProxyLine, error) {
 }
 
 // WriteProxyLine formats p as valid PROXY line into w
-func WriteProxyLine(w io.Writer, p *ProxyLine) (err error) {
+func (p *ProxyLine) WriteProxyLine(w io.Writer) (err error) {
 	_, err = fmt.Fprintf(w, "PROXY %s %s %s %d %d\r\n", p.Protocol, p.SrcAddr.String(), p.DstAddr.String(), p.SrcPort, p.DstPort)
 	return
 }

@@ -64,3 +64,11 @@ func TestInvalidProxyLines(t *testing.T) {
 		}
 	}
 }
+
+func (p *ProxyLine) EqualTo(q *ProxyLine) bool {
+	return p.Protocol == q.Protocol &&
+		p.SrcAddr.String() == q.SrcAddr.String() &&
+		p.DstAddr.String() == q.DstAddr.String() &&
+		p.SrcPort == q.SrcPort &&
+		p.DstPort == q.DstPort
+}
