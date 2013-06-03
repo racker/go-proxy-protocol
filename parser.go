@@ -25,116 +25,58 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"strconv"
-	"strings"
 )
 
-// INET protocol and family
 const (
-	TCP4    = "TCP4"    // TCP over IPv4
-	TCP6    = "TCP6"    // TCP over IPv6
-	UNKNOWN = "UNKNOWN" // Unsupported or unknown protocols
+	LOCAL = '\x00'
+	PROXY = '\x01'
 )
 
 var (
-	InvalidProxyLine   = errors.New("Invalid proxy line")
+	InvalidProxyLine   = errors.New("Invalid or unsupported proxy line")
 	UnmatchedIPAddress = errors.New("IP address(es) unmatched with protocol")
-	InvalidPortNum     = errors.New(fmt.Sprintf("Invalid port number parsed. (expected [%d..%d])", _port_lower, _port_upper))
+	InvalidPortNum     = errors.New("Invalid port number parsed. (expected [0..65536])")
+	UnsupportedVersion = errors.New("Unsupported proxy protocol version")
 )
 
 var (
-	_proxy      = []byte{'P', 'R', 'O', 'X', 'Y'}
-	_CRLF       = "\r\n"
-	_sep        = " "
-	_port_lower = 0
-	_port_upper = 65535
+	_signature = []byte{'\x0D', '\x0A', '\x0D', '\x0A', '\x00', '\x0D', '\x0A', '\x51', '\x55', '\x49', '\x54', '\x0A'}
 )
 
 type ProxyLine struct {
-	Protocol string
-	SrcAddr  *net.IPAddr
-	DstAddr  *net.IPAddr
-	SrcPort  int
-	DstPort  int
+	Protocol AddressFamilyAndProtocol
+	Cmd      byte
+	SrcAddr  net.Addr
+	DstAddr  net.Addr
+	SrcPort  uint16
+	DstPort  uint16
 }
 
-// ConsumeProxyLine looks for PROXY line in the reader and try to parse it if found.
+// ConsumeProxyLine looks for proxy protocol header in the reader and trys to parse it if found.
 //
-// If first 5 bytes in reader is "PROXY", the function reads one line (until first '\n') from reader and try to parse it as ProxyLine. A newly allocated ProxyLine is returned if parsing secceeds. If parsing fails, a nil and an error is returned;
+// If starting from current of pos of reader is valid proxy protocol header, the function reads (consumes) the header from reader and try to parse it as ProxyLine. A newly allocated ProxyLine is returned if parsing secceeds. If parsing fails, a nil and an error is returned; header is consumed from the reader no matter parsing succeeds or not.
 //
-// If first 5 bytes in reader is not "PROXY", the function simply returns (nil, nil), leaving reader intact (nothing from reader is consumed).
+// If starting from current of pos of reader is not a valid proxy protocol header (not starting with "PROXY" or signature), the function simply returns (nil, nil), leaving reader intact (nothing from reader is consumed).
 //
-// If the being parsed PROXY line is using an unknown protocol, ConsumeProxyLine parses remaining fields as same syntax as a supported protocol assuming IP is used in layer 3, and reports error if failed.
+// If the being parsed header is using an unknown protocol, ConsumeProxyLine parses remaining fields as same syntax as a supported protocol assuming IP is used in layer 3, and reports error if failed.
 func ConsumeProxyLine(reader *bufio.Reader) (*ProxyLine, error) {
-	word, err := reader.Peek(5)
-	if !bytes.Equal(word, _proxy) {
+	word, _ := reader.Peek(13)
+	if len(word) == 13 && bytes.Equal(word[0:12], _signature) {
+		switch word[12] {
+		case '\x02':
+			return nil, nil
+		default:
+			return nil, UnsupportedVersion
+		}
+	} else if bytes.Equal(word[0:5], _proxy) {
+		return parseVersion1(reader)
+	} else {
 		return nil, nil
 	}
-	line, err := reader.ReadString('\n')
-	if !strings.HasSuffix(line, _CRLF) {
-		return nil, InvalidProxyLine
-	}
-	tokens := strings.Split(line[:len(line)-2], _sep)
-	ret := new(ProxyLine)
-	if len(tokens) < 6 {
-		return nil, InvalidProxyLine
-	}
-	switch tokens[1] {
-	case TCP4:
-		ret.Protocol = TCP4
-	case TCP6:
-		ret.Protocol = TCP6
-	default:
-		ret.Protocol = UNKNOWN
-	}
-	ret.SrcAddr, err = parseIPAddr(ret.Protocol, tokens[2])
-	if err != nil {
-		return nil, err
-	}
-	ret.DstAddr, err = parseIPAddr(ret.Protocol, tokens[3])
-	if err != nil {
-		return nil, err
-	}
-	ret.SrcPort, err = parsePortNumber(tokens[4])
-	if err != nil {
-		return nil, err
-	}
-	ret.DstPort, err = parsePortNumber(tokens[5])
-	if err != nil {
-		return nil, err
-	}
-	return ret, nil
 }
 
 // WriteProxyLine formats p as valid PROXY line into w
 func (p *ProxyLine) WriteProxyLine(w io.Writer) (err error) {
 	_, err = fmt.Fprintf(w, "PROXY %s %s %s %d %d\r\n", p.Protocol, p.SrcAddr.String(), p.DstAddr.String(), p.SrcPort, p.DstPort)
-	return
-}
-
-func parsePortNumber(portStr string) (port int, err error) {
-	port, err = strconv.Atoi(portStr)
-	if err == nil {
-		if port < _port_lower || port > _port_upper {
-			err = InvalidPortNum
-		}
-	}
-	return
-}
-
-func parseIPAddr(protocol string, addrStr string) (addr *net.IPAddr, err error) {
-	proto := "ip"
-	if protocol == TCP4 {
-		proto = "ip4"
-	} else if protocol == TCP6 {
-		proto = "ip6"
-	}
-	addr, err = net.ResolveIPAddr(proto, addrStr)
-	if err == nil {
-		tryV4 := addr.IP.To4()
-		if (protocol == TCP4 && tryV4 == nil) || (protocol == TCP6 && tryV4 != nil) {
-			err = UnmatchedIPAddress
-		}
-	}
 	return
 }

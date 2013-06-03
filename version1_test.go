@@ -8,13 +8,13 @@ import (
 )
 
 var (
-	fixtureTCP4 = "PROXY TCP4 127.0.0.1 127.0.0.1 65533 65533\r\n"
-	fixtureTCP6 = "PROXY TCP6 2001:4801:7817:72:d4d9:211d:ff10:1631 2001:4801:7817:72:d4d9:211d:ff10:1631 65533 65533\r\n"
+	fixtureTCP4 = "PROXY TCP4 127.0.0.1 127.0.0.1 65533 65533\r\nGET /"
+	fixtureTCP6 = "PROXY TCP6 2001:4801:7817:72:d4d9:211d:ff10:1631 2001:4801:7817:72:d4d9:211d:ff10:1631 65533 65533\r\nGET /"
 
 	v4addr, _ = net.ResolveIPAddr("ip", "127.0.0.1")
 	v6addr, _ = net.ResolveIPAddr("ip", "2001:4801:7817:72:d4d9:211d:ff10:1631")
-	pTCP4     = &ProxyLine{Protocol: TCP4, SrcAddr: v4addr, DstAddr: v4addr, SrcPort: 65533, DstPort: 65533}
-	pTCP6     = &ProxyLine{Protocol: TCP6, SrcAddr: v6addr, DstAddr: v6addr, SrcPort: 65533, DstPort: 65533}
+	pTCP4     = &ProxyLine{Protocol: TCPoverIPv4, SrcAddr: v4addr, DstAddr: v4addr, SrcPort: 65533, DstPort: 65533}
+	pTCP6     = &ProxyLine{Protocol: TCPoverIPv6, SrcAddr: v6addr, DstAddr: v6addr, SrcPort: 65533, DstPort: 65533}
 
 	invalidProxyLines = []string{
 		"PROXY TCP4 127.0.0.1 127.0.0.1 65533 65533", // no CRLF
@@ -34,6 +34,10 @@ func TestParseTCP4(t *testing.T) {
 	if !p.EqualTo(pTCP4) {
 		t.Fatalf("Expected ProxyLine %v, got %v\n", pTCP4, p)
 	}
+	line, _ := reader.ReadString('\n')
+	if line != "GET /" {
+		t.Fatalf("Expected content %q, got %q\n", "GET /", line)
+	}
 }
 
 func TestParseTCP6(t *testing.T) {
@@ -44,6 +48,10 @@ func TestParseTCP6(t *testing.T) {
 	}
 	if !p.EqualTo(pTCP6) {
 		t.Fatalf("Expected ProxyLine %v, got %v\n", pTCP6, p)
+	}
+	line, _ := reader.ReadString('\n')
+	if line != "GET /" {
+		t.Fatalf("Expected content %q, got %q\n", "GET /", line)
 	}
 }
 
@@ -66,6 +74,9 @@ func TestInvalidProxyLines(t *testing.T) {
 }
 
 func (p *ProxyLine) EqualTo(q *ProxyLine) bool {
+	if p == nil || q == nil {
+		return false
+	}
 	return p.Protocol == q.Protocol &&
 		p.SrcAddr.String() == q.SrcAddr.String() &&
 		p.DstAddr.String() == q.DstAddr.String() &&
